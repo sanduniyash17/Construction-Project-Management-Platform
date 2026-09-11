@@ -1,6 +1,7 @@
 import { Navigate, Route, Routes } from "react-router-dom";
 import Dashboard from "../pages/Dashboard";
 import Projects from "../pages/Projects";
+import Tasks from "../pages/Tasks";
 
 function PlaceholderPage({ title }: { title: string }) {
   return (
@@ -25,10 +26,7 @@ function AppRoutes() {
 
       <Route path="/projects" element={<Projects />} />
 
-      <Route
-        path="/tasks"
-        element={<PlaceholderPage title="Tasks" />}
-      />
+      <Route path="/tasks" element={<Tasks />} />
 
       <Route
         path="/team"
