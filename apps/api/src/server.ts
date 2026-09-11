@@ -8,7 +8,7 @@ const port = Number(process.env.PORT ?? 4000);
 const paginationConfig = {
   defaultPage: 1,
   defaultPageSize: 10,
-  maxPageSize: 50,
+  pageSizeOptions: [5, 10, 25] as const,
 };
 
 const projects = [
@@ -29,7 +29,7 @@ const tasks = [
 
 const paginationQuery = z.object({
   page: z.coerce.number().int().min(1).default(paginationConfig.defaultPage),
-  pageSize: z.coerce.number().int().min(1).max(paginationConfig.maxPageSize).default(paginationConfig.defaultPageSize),
+  pageSize: z.coerce.number().pipe(z.union([z.literal(5), z.literal(10), z.literal(25)])).default(10),
   search: z.string().trim().default(""),
 });
 
