@@ -1,6 +1,7 @@
 import cors from "cors";
 import express from "express";
 import { z } from "zod";
+import { db } from "./db.js";
 
 const app = express();
 const port = Number(process.env.PORT ?? 4000);
@@ -10,22 +11,6 @@ const paginationConfig = {
   defaultPageSize: 10,
   pageSizeOptions: [5, 10, 25] as const,
 };
-
-const projects = [
-  { id: 1, name: "Riverside Office Complex", status: "In progress", progress: 72 },
-  { id: 2, name: "Northpoint Distribution Center", status: "In progress", progress: 48 },
-  { id: 3, name: "Cedar Avenue Renovation", status: "On hold", progress: 31 },
-  { id: 4, name: "Lakeside Medical Pavilion", status: "Planning", progress: 8 },
-  { id: 5, name: "Westfield Retail Fit-out", status: "Completed", progress: 100 },
-];
-
-const tasks = [
-  { id: 1, title: "Approve concrete pour schedule", projectId: 1, status: "In progress", priority: "High" },
-  { id: 2, title: "Upload revised structural drawings", projectId: 2, status: "To do", priority: "Medium" },
-  { id: 3, title: "Resolve material delivery delay", projectId: 3, status: "Blocked", priority: "High" },
-  { id: 4, title: "Complete electrical inspection", projectId: 4, status: "Done", priority: "Medium" },
-  { id: 5, title: "Confirm site safety walk-through", projectId: 1, status: "To do", priority: "Low" },
-];
 
 const paginationQuery = z.object({
   page: z.coerce.number().int().min(1).default(paginationConfig.defaultPage),
@@ -68,7 +53,7 @@ app.use(cors());
 app.use(express.json());
 
 app.get("/api/health", (_request, response) => {
-  response.json({ status: "ok", service: "buildflow-api" });
+  response.json({ status: "ok", service: "buildflow-api", database: "sqlite" });
 });
 
 app.get("/api/config", (_request, response) => {
@@ -78,14 +63,24 @@ app.get("/api/config", (_request, response) => {
 app.get("/api/projects", (request, response) => {
   const query = paginationQuery.parse(request.query);
   const search = query.search.toLowerCase();
-  const filteredProjects = projects.filter((project) => project.name.toLowerCase().includes(search));
+  const filteredProjects = db.prepare(`
+    SELECT id, name, status, progress
+    FROM projects
+    WHERE LOWER(name) LIKE @search
+    ORDER BY id ASC
+  `).all({ search: `%${search}%` });
   response.json(paginate(filteredProjects, query.page, query.pageSize));
 });
 
 app.get("/api/tasks", (request, response) => {
   const query = paginationQuery.parse(request.query);
   const search = query.search.toLowerCase();
-  const filteredTasks = tasks.filter((task) => task.title.toLowerCase().includes(search));
+  const filteredTasks = db.prepare(`
+    SELECT id, title, project_id AS projectId, status, priority
+    FROM tasks
+    WHERE LOWER(title) LIKE @search
+    ORDER BY id ASC
+  `).all({ search: `%${search}%` });
   response.json(paginate(filteredTasks, query.page, query.pageSize));
 });
 
