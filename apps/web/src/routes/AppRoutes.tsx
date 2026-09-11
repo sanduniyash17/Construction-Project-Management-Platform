@@ -7,20 +7,7 @@ import Materials from "../pages/Materials";
 import Expenses from "../pages/Expenses";
 import Documents from "../pages/Documents";
 import Reports from "../pages/Reports";
-
-function PlaceholderPage({ title }: { title: string }) {
-  return (
-    <div>
-      <h1 className="text-2xl font-bold text-slate-900">
-        {title}
-      </h1>
-
-      <p className="mt-2 text-sm text-slate-500">
-        This module will be built in a later phase.
-      </p>
-    </div>
-  );
-}
+import Settings from "../pages/Settings";
 
 function AppRoutes() {
   return (
@@ -43,10 +30,7 @@ function AppRoutes() {
 
       <Route path="/reports" element={<Reports />} />
 
-      <Route
-        path="/settings"
-        element={<PlaceholderPage title="Settings" />}
-      />
+      <Route path="/settings" element={<Settings />} />
     </Routes>
   );
 }
