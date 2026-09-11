@@ -1,10 +1,11 @@
 import cors from "cors";
 import express from "express";
+import { PrismaClient } from "@prisma/client";
 import { z } from "zod";
-import { db } from "./db.js";
 
 const app = express();
 const port = Number(process.env.PORT ?? 4000);
+const prisma = new PrismaClient();
 
 const paginationConfig = {
   defaultPage: 1,
@@ -30,14 +31,12 @@ type PaginatedResponse<T> = {
   };
 };
 
-function paginate<T>(items: T[], page: number, pageSize: number): PaginatedResponse<T> {
-  const totalItems = items.length;
+function paginate<T>(items: T[], page: number, pageSize: number, totalItems: number): PaginatedResponse<T> {
   const totalPages = Math.max(1, Math.ceil(totalItems / pageSize));
   const safePage = Math.min(page, totalPages);
-  const start = (safePage - 1) * pageSize;
 
   return {
-    data: items.slice(start, start + pageSize),
+    data: items,
     pagination: {
       page: safePage,
       pageSize,
@@ -53,35 +52,43 @@ app.use(cors());
 app.use(express.json());
 
 app.get("/api/health", (_request, response) => {
-  response.json({ status: "ok", service: "buildflow-api", database: "sqlite" });
+  response.json({ status: "ok", service: "buildflow-api", database: "postgresql" });
 });
 
 app.get("/api/config", (_request, response) => {
   response.json({ pagination: paginationConfig });
 });
 
-app.get("/api/projects", (request, response) => {
+app.get("/api/projects", async (request, response) => {
   const query = paginationQuery.parse(request.query);
-  const search = query.search.toLowerCase();
-  const filteredProjects = db.prepare(`
-    SELECT id, name, status, progress
-    FROM projects
-    WHERE LOWER(name) LIKE @search
-    ORDER BY id ASC
-  `).all({ search: `%${search}%` });
-  response.json(paginate(filteredProjects, query.page, query.pageSize));
+  const where = query.search ? { name: { contains: query.search, mode: "insensitive" as const } } : undefined;
+  const totalItems = await prisma.project.count({ where });
+  const totalPages = Math.max(1, Math.ceil(totalItems / query.pageSize));
+  const safePage = Math.min(query.page, totalPages);
+  const projects = await prisma.project.findMany({
+    where,
+    select: { id: true, name: true, status: true, progress: true },
+    orderBy: { id: "asc" },
+    skip: (safePage - 1) * query.pageSize,
+    take: query.pageSize,
+  });
+  response.json(paginate(projects, safePage, query.pageSize, totalItems));
 });
 
-app.get("/api/tasks", (request, response) => {
+app.get("/api/tasks", async (request, response) => {
   const query = paginationQuery.parse(request.query);
-  const search = query.search.toLowerCase();
-  const filteredTasks = db.prepare(`
-    SELECT id, title, project_id AS projectId, status, priority
-    FROM tasks
-    WHERE LOWER(title) LIKE @search
-    ORDER BY id ASC
-  `).all({ search: `%${search}%` });
-  response.json(paginate(filteredTasks, query.page, query.pageSize));
+  const where = query.search ? { title: { contains: query.search, mode: "insensitive" as const } } : undefined;
+  const totalItems = await prisma.task.count({ where });
+  const totalPages = Math.max(1, Math.ceil(totalItems / query.pageSize));
+  const safePage = Math.min(query.page, totalPages);
+  const tasks = await prisma.task.findMany({
+    where,
+    select: { id: true, title: true, projectId: true, status: true, priority: true },
+    orderBy: { id: "asc" },
+    skip: (safePage - 1) * query.pageSize,
+    take: query.pageSize,
+  });
+  response.json(paginate(tasks, safePage, query.pageSize, totalItems));
 });
 
 app.use((_request, response) => {
@@ -90,4 +97,8 @@ app.use((_request, response) => {
 
 app.listen(port, () => {
   console.log(`BuildFlow API listening on http://localhost:${port}`);
+});
+
+process.on("SIGTERM", async () => {
+  await prisma.$disconnect();
 });
