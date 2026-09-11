@@ -3,6 +3,7 @@ import Dashboard from "../pages/Dashboard";
 import Projects from "../pages/Projects";
 import Tasks from "../pages/Tasks";
 import Team from "../pages/Team";
+import Materials from "../pages/Materials";
 
 function PlaceholderPage({ title }: { title: string }) {
   return (
@@ -31,10 +32,7 @@ function AppRoutes() {
 
       <Route path="/team" element={<Team />} />
 
-      <Route
-        path="/materials"
-        element={<PlaceholderPage title="Materials" />}
-      />
+      <Route path="/materials" element={<Materials />} />
 
       <Route
         path="/expenses"
