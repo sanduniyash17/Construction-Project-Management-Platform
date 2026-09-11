@@ -6,6 +6,7 @@ import Team from "../pages/Team";
 import Materials from "../pages/Materials";
 import Expenses from "../pages/Expenses";
 import Documents from "../pages/Documents";
+import Reports from "../pages/Reports";
 
 function PlaceholderPage({ title }: { title: string }) {
   return (
@@ -40,10 +41,7 @@ function AppRoutes() {
 
       <Route path="/documents" element={<Documents />} />
 
-      <Route
-        path="/reports"
-        element={<PlaceholderPage title="Reports" />}
-      />
+      <Route path="/reports" element={<Reports />} />
 
       <Route
         path="/settings"
