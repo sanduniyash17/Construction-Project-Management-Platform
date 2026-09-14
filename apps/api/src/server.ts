@@ -17,6 +17,7 @@ const paginationQuery = z.object({
   page: z.coerce.number().int().min(1).default(paginationConfig.defaultPage),
   pageSize: z.coerce.number().pipe(z.union([z.literal(5), z.literal(10), z.literal(25)])).default(10),
   search: z.string().trim().default(""),
+  status: z.string().trim().default(""),
 });
 
 type PaginatedResponse<T> = {
@@ -61,7 +62,7 @@ app.get("/api/config", (_request, response) => {
 
 app.get("/api/projects", async (request, response) => {
   const query = paginationQuery.parse(request.query);
-  const where = query.search ? { name: { contains: query.search, mode: "insensitive" as const } } : undefined;
+  const where = { ...(query.search ? { name: { contains: query.search, mode: "insensitive" as const } } : {}), ...(query.status ? { status: query.status } : {}) };
   const totalItems = await prisma.project.count({ where });
   const totalPages = Math.max(1, Math.ceil(totalItems / query.pageSize));
   const safePage = Math.min(query.page, totalPages);

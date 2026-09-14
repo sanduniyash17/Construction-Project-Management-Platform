@@ -1,8 +1,10 @@
-import { useMemo, useState } from "react";
+import { useState } from "react";
 import type { FormEventHandler, ReactNode } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { useForm } from "react-hook-form";
 import { z } from "zod";
 import { zodResolver } from "@hookform/resolvers/zod";
+import { getProjects, type Project } from "../lib/api";
 
 const projectSchema = z.object({
   name: z.string().min(2, "Enter a project name."),
@@ -15,54 +17,25 @@ const projectSchema = z.object({
 type ProjectFormValues = z.infer<typeof projectSchema>;
 type ProjectStatus = "Planning" | "In progress" | "On hold" | "Completed";
 
-type Project = {
-  id: number;
-  name: string;
-  client: string;
-  location: string;
-  status: ProjectStatus;
-  budget: string;
-  progress: number;
-  dueDate: string;
-};
-
-const initialProjects: Project[] = [
-  { id: 1, name: "Riverside Office Complex", client: "Horizon Developments", location: "Austin, TX", status: "In progress", budget: "$820,000", progress: 72, dueDate: "Aug 28, 2026" },
-  { id: 2, name: "Northpoint Distribution Center", client: "Northpoint Logistics", location: "Dallas, TX", status: "In progress", budget: "$640,000", progress: 48, dueDate: "Oct 14, 2026" },
-  { id: 3, name: "Cedar Avenue Renovation", client: "City of Austin", location: "Austin, TX", status: "On hold", budget: "$520,000", progress: 31, dueDate: "Nov 02, 2026" },
-  { id: 4, name: "Lakeside Medical Pavilion", client: "Lakeside Health", location: "Round Rock, TX", status: "Planning", budget: "$460,000", progress: 8, dueDate: "Jan 19, 2027" },
-  { id: 5, name: "Westfield Retail Fit-out", client: "Westfield Partners", location: "Pflugerville, TX", status: "Completed", budget: "$380,000", progress: 100, dueDate: "Jun 30, 2026" },
-];
-
 const statusOptions: Array<"All" | ProjectStatus> = ["All", "Planning", "In progress", "On hold", "Completed"];
 
 function Projects() {
-  const [projects, setProjects] = useState(initialProjects);
   const [query, setQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState<(typeof statusOptions)[number]>("All");
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(5);
   const [isFormOpen, setIsFormOpen] = useState(false);
   const { register, handleSubmit, reset, formState: { errors } } = useForm<ProjectFormValues>({ resolver: zodResolver(projectSchema) });
 
-  const filteredProjects = useMemo(() => projects.filter((project) => {
-    const matchesQuery = `${project.name} ${project.client} ${project.location}`.toLowerCase().includes(query.toLowerCase());
-    const matchesStatus = statusFilter === "All" || project.status === statusFilter;
-    return matchesQuery && matchesStatus;
-  }), [projects, query, statusFilter]);
+  const projectsQuery = useQuery({
+    queryKey: ["projects", { page, pageSize, query, statusFilter }],
+    queryFn: () => getProjects(page, pageSize, query, statusFilter),
+    placeholderData: (previousData) => previousData,
+  });
+  const projects = projectsQuery.data?.data ?? [];
+  const pagination = projectsQuery.data?.pagination;
 
-  function onSubmit(values: ProjectFormValues) {
-    setProjects((currentProjects) => [
-      {
-        id: Date.now(),
-        name: values.name,
-        client: values.client,
-        location: values.location,
-        status: "Planning",
-        budget: `$${Number(values.budget).toLocaleString("en-US")}`,
-        progress: 0,
-        dueDate: new Date(`${values.dueDate}T00:00:00`).toLocaleDateString("en-US", { month: "short", day: "2-digit", year: "numeric" }),
-      },
-      ...currentProjects,
-    ]);
+  function onSubmit() {
     reset();
     setIsFormOpen(false);
   }
@@ -89,7 +62,7 @@ function Projects() {
           </label>
           <div className="flex flex-wrap gap-2" aria-label="Filter by status">
             {statusOptions.map((status) => (
-              <button key={status} type="button" onClick={() => setStatusFilter(status)} className={`rounded-full px-3 py-1.5 text-xs font-semibold transition ${statusFilter === status ? "bg-teal-700 text-white" : "bg-slate-100 text-slate-600 hover:bg-slate-200"}`}>
+              <button key={status} type="button" onClick={() => { setStatusFilter(status); setPage(1); }} className={`rounded-full px-3 py-1.5 text-xs font-semibold transition ${statusFilter === status ? "bg-teal-700 text-white" : "bg-slate-100 text-slate-600 hover:bg-slate-200"}`}>
                 {status}
               </button>
             ))}
@@ -108,12 +81,17 @@ function Projects() {
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
-              {filteredProjects.map((project) => <ProjectRow key={project.id} project={project} />)}
+              {projects.map((project) => <ProjectRow key={project.id} project={project} />)}
             </tbody>
           </table>
-          {filteredProjects.length === 0 && <p className="p-10 text-center text-sm text-slate-500">No projects match your filters.</p>}
+          {projectsQuery.isLoading && <p className="p-10 text-center text-sm text-slate-500">Loading projects...</p>}
+          {projectsQuery.isError && <p className="p-10 text-center text-sm text-red-600">Unable to load projects. Start the API and try again.</p>}
+          {!projectsQuery.isLoading && !projectsQuery.isError && projects.length === 0 && <p className="p-10 text-center text-sm text-slate-500">No projects match your search.</p>}
         </div>
-        <div className="border-t border-slate-200 px-5 py-3 text-xs text-slate-500">Showing {filteredProjects.length} of {projects.length} projects</div>
+        <div className="flex flex-col gap-3 border-t border-slate-200 px-5 py-3 text-xs text-slate-500 sm:flex-row sm:items-center sm:justify-between">
+          <span>Showing {projects.length} of {pagination?.totalItems ?? 0} projects</span>
+          <div className="flex items-center gap-3"><label>Rows <select value={pageSize} onChange={(event) => { setPageSize(Number(event.target.value)); setPage(1); }} className="ml-1 rounded border border-slate-200 px-1.5 py-1"><option value={5}>5</option><option value={10}>10</option><option value={25}>25</option></select></label><button type="button" disabled={!pagination?.hasPreviousPage} onClick={() => setPage((currentPage) => currentPage - 1)} className="rounded border border-slate-200 px-2 py-1 disabled:cursor-not-allowed disabled:opacity-40">Previous</button><span>Page {pagination?.page ?? page} of {pagination?.totalPages ?? 1}</span><button type="button" disabled={!pagination?.hasNextPage} onClick={() => setPage((currentPage) => currentPage + 1)} className="rounded border border-slate-200 px-2 py-1 disabled:cursor-not-allowed disabled:opacity-40">Next</button></div>
+        </div>
       </section>
 
       {isFormOpen && <ProjectForm onClose={() => { setIsFormOpen(false); reset(); }} register={register} errors={errors} onSubmit={handleSubmit(onSubmit)} />}
@@ -125,11 +103,11 @@ function ProjectRow({ project }: { project: Project }) {
   const statusStyles = { Planning: "bg-slate-100 text-slate-600", "In progress": "bg-teal-50 text-teal-700", "On hold": "bg-amber-50 text-amber-700", Completed: "bg-emerald-50 text-emerald-700" };
   return (
     <tr className="hover:bg-slate-50">
-      <td className="px-5 py-4"><p className="font-semibold text-slate-900">{project.name}</p><p className="mt-1 text-xs text-slate-500">{project.client} · {project.location}</p></td>
+      <td className="px-5 py-4"><p className="font-semibold text-slate-900">{project.name}</p><p className="mt-1 text-xs text-slate-500">Project #{project.id}</p></td>
       <td className="px-5 py-4"><span className={`rounded-full px-2.5 py-1 text-xs font-semibold ${statusStyles[project.status]}`}>{project.status}</span></td>
       <td className="px-5 py-4"><div className="flex items-center gap-3"><div className="h-1.5 w-24 rounded-full bg-slate-100"><div className="h-1.5 rounded-full bg-teal-700" style={{ width: `${project.progress}%` }} /></div><span className="text-xs font-medium text-slate-600">{project.progress}%</span></div></td>
-      <td className="px-5 py-4 text-sm font-medium text-slate-700">{project.budget}</td>
-      <td className="px-5 py-4 text-sm text-slate-600">{project.dueDate}</td>
+      <td className="px-5 py-4 text-sm font-medium text-slate-700">From API</td>
+      <td className="px-5 py-4 text-sm text-slate-600">Active</td>
     </tr>
   );
 }
