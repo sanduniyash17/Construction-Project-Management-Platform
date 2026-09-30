@@ -12,11 +12,15 @@ async function main() {
   ];
 
   for (const project of projects) {
-    await prisma.project.upsert({
+    const existingProject = await prisma.project.findFirst({
       where: { name: project.name },
-      update: project,
-      create: project,
+      orderBy: { id: "asc" },
     });
+    if (existingProject) {
+      await prisma.project.update({ where: { id: existingProject.id }, data: project });
+    } else {
+      await prisma.project.create({ data: project });
+    }
   }
 
   const projectByName = new Map((await prisma.project.findMany()).map((project) => [project.name, project.id]));
@@ -31,11 +35,13 @@ async function main() {
   for (const task of tasks) {
     const projectId = projectByName.get(task.project);
     if (!projectId) continue;
-    await prisma.task.upsert({
-      where: { id: tasks.indexOf(task) + 1 },
-      update: { title: task.title, projectId, status: task.status, priority: task.priority },
-      create: { title: task.title, projectId, status: task.status, priority: task.priority },
-    });
+    const taskData = { title: task.title, projectId, status: task.status, priority: task.priority };
+    const existingTask = await prisma.task.findFirst({ where: { title: task.title, projectId } });
+    if (existingTask) {
+      await prisma.task.update({ where: { id: existingTask.id }, data: taskData });
+    } else {
+      await prisma.task.create({ data: taskData });
+    }
   }
 }
 
