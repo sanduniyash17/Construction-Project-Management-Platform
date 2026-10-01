@@ -11,6 +11,27 @@ export type Project = {
   progress: number;
 };
 
+export type ProjectOption = Pick<Project, "id" | "name">;
+
+export type Task = {
+  id: number;
+  title: string;
+  projectId: number;
+  project: { name: string };
+  assignee: string | null;
+  dueDate: string | null;
+  status: "To do" | "In progress" | "Blocked" | "Done";
+  priority: "Low" | "Medium" | "High";
+};
+
+export type NewTask = {
+  title: string;
+  projectId: number;
+  assignee: string;
+  dueDate: string;
+  priority: Task["priority"];
+};
+
 export type NewProject = {
   name: string;
   client: string;
@@ -67,6 +88,47 @@ export async function getProject(id: number) {
   const response = await fetch(`${apiBaseUrl}/projects/${id}`);
   if (!response.ok) throw new Error(response.status === 404 ? "Project not found." : "Unable to load project details.");
   return response.json() as Promise<ProjectDetails>;
+}
+
+export async function getProjectOptions() {
+  const response = await fetch(`${apiBaseUrl}/projects/options`);
+  if (!response.ok) throw new Error("Unable to load projects.");
+  return response.json() as Promise<ProjectOption[]>;
+}
+
+export async function getTasks(page: number, pageSize: number, search: string, status: string) {
+  const params = new URLSearchParams({ page: String(page), pageSize: String(pageSize) });
+  if (search.trim()) params.set("search", search.trim());
+  if (status !== "All") params.set("status", status);
+  const response = await fetch(`${apiBaseUrl}/tasks?${params}`);
+  if (!response.ok) throw new Error("Unable to load tasks.");
+  return response.json() as Promise<PaginatedResponse<Task>>;
+}
+
+export async function createTask(task: NewTask) {
+  const response = await fetch(`${apiBaseUrl}/tasks`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(task),
+  });
+  if (!response.ok) {
+    const body = await response.json().catch(() => null) as { error?: string } | null;
+    throw new Error(body?.error ?? "Unable to create task.");
+  }
+  return response.json() as Promise<Task>;
+}
+
+export async function updateTaskStatus(id: number, status: Task["status"]) {
+  const response = await fetch(`${apiBaseUrl}/tasks/${id}/status`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ status }),
+  });
+  if (!response.ok) {
+    const body = await response.json().catch(() => null) as { error?: string } | null;
+    throw new Error(body?.error ?? "Unable to update task status.");
+  }
+  return response.json() as Promise<Task>;
 }
 
 export async function createProject(project: NewProject) {

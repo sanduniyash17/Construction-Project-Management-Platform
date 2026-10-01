@@ -25,17 +25,24 @@ async function main() {
 
   const projectByName = new Map((await prisma.project.findMany()).map((project) => [project.name, project.id]));
   const tasks = [
-    { title: "Approve concrete pour schedule", project: "Riverside Office Complex", status: "In progress", priority: "High" },
-    { title: "Upload revised structural drawings", project: "Northpoint Distribution Center", status: "To do", priority: "Medium" },
-    { title: "Resolve material delivery delay", project: "Cedar Avenue Renovation", status: "Blocked", priority: "High" },
-    { title: "Complete electrical inspection", project: "Lakeside Medical Pavilion", status: "Done", priority: "Medium" },
-    { title: "Confirm site safety walk-through", project: "Riverside Office Complex", status: "To do", priority: "Low" },
+    { title: "Approve concrete pour schedule", project: "Riverside Office Complex", assignee: "Maya Chen", dueDate: "2026-10-01", status: "In progress", priority: "High" },
+    { title: "Upload revised structural drawings", project: "Northpoint Distribution Center", assignee: "Jordan Lee", dueDate: "2026-10-04", status: "To do", priority: "Medium" },
+    { title: "Resolve material delivery delay", project: "Cedar Avenue Renovation", assignee: "Sam Rivera", dueDate: "2026-10-02", status: "Blocked", priority: "High" },
+    { title: "Complete electrical inspection", project: "Lakeside Medical Pavilion", assignee: "Maya Chen", dueDate: "2026-10-03", status: "Done", priority: "Medium" },
+    { title: "Confirm site safety walk-through", project: "Riverside Office Complex", assignee: "Alex Morgan", dueDate: "2026-10-05", status: "To do", priority: "Low" },
   ];
 
   for (const task of tasks) {
     const projectId = projectByName.get(task.project);
     if (!projectId) continue;
-    const taskData = { title: task.title, projectId, status: task.status, priority: task.priority };
+    const taskData = {
+      title: task.title,
+      projectId,
+      assignee: task.assignee,
+      dueDate: new Date(`${task.dueDate}T00:00:00.000Z`),
+      status: task.status,
+      priority: task.priority,
+    };
     const existingTask = await prisma.task.findFirst({ where: { title: task.title, projectId } });
     if (existingTask) {
       await prisma.task.update({ where: { id: existingTask.id }, data: taskData });

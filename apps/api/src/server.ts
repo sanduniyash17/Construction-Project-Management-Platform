@@ -44,6 +44,17 @@ const projectQuery = paginationQuery.extend({
   sortDirection: z.enum(["asc", "desc"]).default("asc"),
 });
 
+const taskStatus = z.enum(["To do", "In progress", "Blocked", "Done"]);
+const taskPriority = z.enum(["Low", "Medium", "High"]);
+
+const createTaskSchema = z.object({
+  title: z.string().trim().min(2),
+  projectId: z.number().int().positive(),
+  assignee: z.string().trim().min(2),
+  dueDate: z.iso.date(),
+  priority: taskPriority,
+});
+
 type PaginatedResponse<T> = {
   data: T[];
   pagination: {
@@ -98,6 +109,14 @@ app.get("/api/projects", async (request, response) => {
     take: query.pageSize,
   });
   response.json(paginate(projects, safePage, query.pageSize, totalItems));
+});
+
+app.get("/api/projects/options", async (_request, response) => {
+  const projects = await prisma.project.findMany({
+    select: { id: true, name: true },
+    orderBy: { name: "asc" },
+  });
+  response.json(projects);
 });
 
 app.get("/api/projects/:id", async (request, response) => {
@@ -167,18 +186,68 @@ app.put("/api/projects/:id", async (request, response) => {
 
 app.get("/api/tasks", async (request, response) => {
   const query = paginationQuery.parse(request.query);
-  const where = query.search ? { title: { contains: query.search, mode: "insensitive" as const } } : undefined;
+  const where = {
+    ...(query.search ? {
+      OR: [
+        { title: { contains: query.search, mode: "insensitive" as const } },
+        { assignee: { contains: query.search, mode: "insensitive" as const } },
+        { project: { name: { contains: query.search, mode: "insensitive" as const } } },
+      ],
+    } : {}),
+    ...(query.status ? { status: query.status } : {}),
+  };
   const totalItems = await prisma.task.count({ where });
   const totalPages = Math.max(1, Math.ceil(totalItems / query.pageSize));
   const safePage = Math.min(query.page, totalPages);
   const tasks = await prisma.task.findMany({
     where,
-    select: { id: true, title: true, projectId: true, status: true, priority: true },
-    orderBy: { id: "asc" },
+    select: { id: true, title: true, projectId: true, assignee: true, dueDate: true, status: true, priority: true, project: { select: { name: true } } },
+    orderBy: [{ dueDate: "asc" }, { id: "asc" }],
     skip: (safePage - 1) * query.pageSize,
     take: query.pageSize,
   });
   response.json(paginate(tasks, safePage, query.pageSize, totalItems));
+});
+
+app.post("/api/tasks", async (request, response) => {
+  const result = createTaskSchema.safeParse(request.body);
+  if (!result.success) {
+    response.status(400).json({ error: "Invalid task details", details: result.error.flatten() });
+    return;
+  }
+
+  const projectExists = await prisma.project.findUnique({ where: { id: result.data.projectId }, select: { id: true } });
+  if (!projectExists) {
+    response.status(400).json({ error: "Selected project does not exist." });
+    return;
+  }
+
+  const task = await prisma.task.create({
+    data: { ...result.data, dueDate: new Date(`${result.data.dueDate}T00:00:00.000Z`), status: "To do" },
+    select: { id: true, title: true, projectId: true, assignee: true, dueDate: true, status: true, priority: true, project: { select: { name: true } } },
+  });
+  response.status(201).json(task);
+});
+
+app.patch("/api/tasks/:id/status", async (request, response) => {
+  const id = z.coerce.number().int().positive().safeParse(request.params.id);
+  const status = taskStatus.safeParse(request.body?.status);
+  if (!id.success || !status.success) {
+    response.status(400).json({ error: "Invalid task status update." });
+    return;
+  }
+
+  const exists = await prisma.task.findUnique({ where: { id: id.data }, select: { id: true } });
+  if (!exists) {
+    response.status(404).json({ error: "Task not found." });
+    return;
+  }
+  const task = await prisma.task.update({
+    where: { id: id.data },
+    data: { status: status.data },
+    select: { id: true, title: true, projectId: true, assignee: true, dueDate: true, status: true, priority: true, project: { select: { name: true } } },
+  });
+  response.json(task);
 });
 
 app.use((_request, response) => {

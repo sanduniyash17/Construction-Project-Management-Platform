@@ -30,6 +30,8 @@ model Task {
   id         Int      @id @default(autoincrement())
   title      String
   projectId  Int      @map("project_id")
+  assignee   String?
+  dueDate    DateTime? @map("due_date")
   status     String
   priority   String
   createdAt  DateTime @default(now()) @map("created_at")
