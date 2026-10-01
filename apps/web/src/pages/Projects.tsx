@@ -1,8 +1,11 @@
-import { useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import type { FormEventHandler, ReactNode } from "react";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { Link } from "react-router-dom";
 import { useForm } from "react-hook-form";
 import { z } from "zod";
 import { zodResolver } from "@hookform/resolvers/zod";
+import { createProject, getProjects, type Project, type ProjectSortField, type SortDirection } from "../lib/api";
 
 const projectSchema = z.object({
   name: z.string().min(2, "Enter a project name."),
@@ -15,56 +18,64 @@ const projectSchema = z.object({
 type ProjectFormValues = z.infer<typeof projectSchema>;
 type ProjectStatus = "Planning" | "In progress" | "On hold" | "Completed";
 
-type Project = {
-  id: number;
-  name: string;
-  client: string;
-  location: string;
-  status: ProjectStatus;
-  budget: string;
-  progress: number;
-  dueDate: string;
-};
-
-const initialProjects: Project[] = [
-  { id: 1, name: "Riverside Office Complex", client: "Horizon Developments", location: "Austin, TX", status: "In progress", budget: "$820,000", progress: 72, dueDate: "Aug 28, 2026" },
-  { id: 2, name: "Northpoint Distribution Center", client: "Northpoint Logistics", location: "Dallas, TX", status: "In progress", budget: "$640,000", progress: 48, dueDate: "Oct 14, 2026" },
-  { id: 3, name: "Cedar Avenue Renovation", client: "City of Austin", location: "Austin, TX", status: "On hold", budget: "$520,000", progress: 31, dueDate: "Nov 02, 2026" },
-  { id: 4, name: "Lakeside Medical Pavilion", client: "Lakeside Health", location: "Round Rock, TX", status: "Planning", budget: "$460,000", progress: 8, dueDate: "Jan 19, 2027" },
-  { id: 5, name: "Westfield Retail Fit-out", client: "Westfield Partners", location: "Pflugerville, TX", status: "Completed", budget: "$380,000", progress: 100, dueDate: "Jun 30, 2026" },
-];
-
 const statusOptions: Array<"All" | ProjectStatus> = ["All", "Planning", "In progress", "On hold", "Completed"];
 
 function Projects() {
-  const [projects, setProjects] = useState(initialProjects);
   const [query, setQuery] = useState("");
+  const [debouncedQuery, setDebouncedQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState<(typeof statusOptions)[number]>("All");
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(5);
+  const [sortBy, setSortBy] = useState<ProjectSortField>("name");
+  const [sortDirection, setSortDirection] = useState<SortDirection>("asc");
   const [isFormOpen, setIsFormOpen] = useState(false);
+  const queryClient = useQueryClient();
   const { register, handleSubmit, reset, formState: { errors } } = useForm<ProjectFormValues>({ resolver: zodResolver(projectSchema) });
 
-  const filteredProjects = useMemo(() => projects.filter((project) => {
-    const matchesQuery = `${project.name} ${project.client} ${project.location}`.toLowerCase().includes(query.toLowerCase());
-    const matchesStatus = statusFilter === "All" || project.status === statusFilter;
-    return matchesQuery && matchesStatus;
-  }), [projects, query, statusFilter]);
+  useEffect(() => {
+    const timeout = window.setTimeout(() => setDebouncedQuery(query), 300);
+    return () => window.clearTimeout(timeout);
+  }, [query]);
+
+  const projectsQuery = useQuery({
+    queryKey: ["projects", { page, pageSize, query: debouncedQuery, statusFilter, sortBy, sortDirection }],
+    queryFn: () => getProjects(page, pageSize, debouncedQuery, statusFilter, sortBy, sortDirection),
+    placeholderData: (previousData) => previousData,
+  });
+  const projects = projectsQuery.data?.data ?? [];
+  const pagination = projectsQuery.data?.pagination;
+
+  const createProjectMutation = useMutation({
+    mutationFn: (values: ProjectFormValues) => createProject({ ...values, budget: Number(values.budget) }),
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ["projects"] });
+      setPage(1);
+      setQuery("");
+      setDebouncedQuery("");
+      setStatusFilter("All");
+      reset();
+      setIsFormOpen(false);
+    },
+  });
 
   function onSubmit(values: ProjectFormValues) {
-    setProjects((currentProjects) => [
-      {
-        id: Date.now(),
-        name: values.name,
-        client: values.client,
-        location: values.location,
-        status: "Planning",
-        budget: `$${Number(values.budget).toLocaleString("en-US")}`,
-        progress: 0,
-        dueDate: new Date(`${values.dueDate}T00:00:00`).toLocaleDateString("en-US", { month: "short", day: "2-digit", year: "numeric" }),
-      },
-      ...currentProjects,
-    ]);
-    reset();
+    createProjectMutation.mutate(values);
+  }
+
+  function closeProjectForm() {
     setIsFormOpen(false);
+    reset();
+    createProjectMutation.reset();
+  }
+
+  function toggleSort(field: ProjectSortField) {
+    if (sortBy === field) {
+      setSortDirection((direction) => direction === "asc" ? "desc" : "asc");
+    } else {
+      setSortBy(field);
+      setSortDirection("asc");
+    }
+    setPage(1);
   }
 
   return (
@@ -84,12 +95,12 @@ function Projects() {
         <div className="flex flex-col gap-4 border-b border-slate-200 p-5 lg:flex-row lg:items-center lg:justify-between">
           <label className="relative block lg:w-80">
             <span className="sr-only">Search projects</span>
-            <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search projects..." className="w-full rounded-lg border border-slate-200 py-2.5 pl-10 pr-3 text-sm text-slate-900 outline-none transition placeholder:text-slate-400 focus:border-teal-600 focus:ring-2 focus:ring-teal-100" />
+            <input value={query} onChange={(event) => { setQuery(event.target.value); setPage(1); }} placeholder="Search projects..." className="w-full rounded-lg border border-slate-200 py-2.5 pl-10 pr-3 text-sm text-slate-900 outline-none transition placeholder:text-slate-400 focus:border-teal-600 focus:ring-2 focus:ring-teal-100" />
             <span className="pointer-events-none absolute left-3 top-2.5 text-slate-400">⌕</span>
           </label>
           <div className="flex flex-wrap gap-2" aria-label="Filter by status">
             {statusOptions.map((status) => (
-              <button key={status} type="button" onClick={() => setStatusFilter(status)} className={`rounded-full px-3 py-1.5 text-xs font-semibold transition ${statusFilter === status ? "bg-teal-700 text-white" : "bg-slate-100 text-slate-600 hover:bg-slate-200"}`}>
+              <button key={status} type="button" onClick={() => { setStatusFilter(status); setPage(1); }} className={`rounded-full px-3 py-1.5 text-xs font-semibold transition ${statusFilter === status ? "bg-teal-700 text-white" : "bg-slate-100 text-slate-600 hover:bg-slate-200"}`}>
                 {status}
               </button>
             ))}
@@ -100,23 +111,33 @@ function Projects() {
           <table className="w-full min-w-[760px] text-left">
             <thead className="bg-slate-50 text-xs font-semibold uppercase tracking-wide text-slate-500">
               <tr>
-                <th className="px-5 py-3">Project</th>
-                <th className="px-5 py-3">Status</th>
-                <th className="px-5 py-3">Progress</th>
-                <th className="px-5 py-3">Budget</th>
-                <th className="px-5 py-3">Due date</th>
+                <SortableHeader field="name" label="Project" sortBy={sortBy} direction={sortDirection} onSort={toggleSort} />
+                <SortableHeader field="status" label="Status" sortBy={sortBy} direction={sortDirection} onSort={toggleSort} />
+                <SortableHeader field="progress" label="Progress" sortBy={sortBy} direction={sortDirection} onSort={toggleSort} />
+                <SortableHeader field="budget" label="Budget" sortBy={sortBy} direction={sortDirection} onSort={toggleSort} />
+                <SortableHeader field="dueDate" label="Due date" sortBy={sortBy} direction={sortDirection} onSort={toggleSort} />
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
-              {filteredProjects.map((project) => <ProjectRow key={project.id} project={project} />)}
+              {projects.map((project) => <ProjectRow key={project.id} project={project} />)}
             </tbody>
           </table>
-          {filteredProjects.length === 0 && <p className="p-10 text-center text-sm text-slate-500">No projects match your filters.</p>}
+          {projectsQuery.isLoading && <p className="p-10 text-center text-sm text-slate-500">Loading projects...</p>}
+          {projectsQuery.isError && <p className="p-10 text-center text-sm text-red-600">Unable to load projects. Start the API and try again.</p>}
+          {!projectsQuery.isLoading && !projectsQuery.isError && projects.length === 0 && <p className="p-10 text-center text-sm text-slate-500">{debouncedQuery || statusFilter !== "All" ? "No projects match your search." : "No projects found in the database."}</p>}
         </div>
-        <div className="border-t border-slate-200 px-5 py-3 text-xs text-slate-500">Showing {filteredProjects.length} of {projects.length} projects</div>
+        <div className="flex flex-col gap-3 border-t border-slate-200 px-5 py-3 text-xs text-slate-500 sm:flex-row sm:items-center sm:justify-between">
+          <span>Showing {pagination && pagination.totalItems > 0 ? (pagination.page - 1) * pagination.pageSize + 1 : 0}–{pagination ? Math.min(pagination.page * pagination.pageSize, pagination.totalItems) : 0} of {pagination?.totalItems ?? 0} projects</span>
+          <div className="flex items-center gap-3">
+            <label>Rows <select value={pageSize} onChange={(event) => { setPageSize(Number(event.target.value)); setPage(1); }} className="ml-1 rounded border border-slate-200 px-1.5 py-1"><option value={5}>5</option><option value={10}>10</option><option value={25}>25</option></select></label>
+            <button type="button" disabled={!pagination?.hasPreviousPage || projectsQuery.isFetching} onClick={() => setPage((currentPage) => currentPage - 1)} className="rounded border border-slate-200 px-2 py-1 disabled:cursor-not-allowed disabled:opacity-40">Previous</button>
+            <span>Page {pagination?.page ?? page} of {pagination?.totalPages ?? 1}</span>
+            <button type="button" disabled={!pagination?.hasNextPage || projectsQuery.isFetching} onClick={() => setPage((currentPage) => currentPage + 1)} className="rounded border border-slate-200 px-2 py-1 disabled:cursor-not-allowed disabled:opacity-40">Next</button>
+          </div>
+        </div>
       </section>
 
-      {isFormOpen && <ProjectForm onClose={() => { setIsFormOpen(false); reset(); }} register={register} errors={errors} onSubmit={handleSubmit(onSubmit)} />}
+      {isFormOpen && <ProjectForm onClose={closeProjectForm} register={register} errors={errors} onSubmit={handleSubmit(onSubmit)} isSaving={createProjectMutation.isPending} submitError={createProjectMutation.error?.message} />}
     </div>
   );
 }
@@ -125,13 +146,18 @@ function ProjectRow({ project }: { project: Project }) {
   const statusStyles = { Planning: "bg-slate-100 text-slate-600", "In progress": "bg-teal-50 text-teal-700", "On hold": "bg-amber-50 text-amber-700", Completed: "bg-emerald-50 text-emerald-700" };
   return (
     <tr className="hover:bg-slate-50">
-      <td className="px-5 py-4"><p className="font-semibold text-slate-900">{project.name}</p><p className="mt-1 text-xs text-slate-500">{project.client} · {project.location}</p></td>
+      <td className="px-5 py-4"><Link to={`/projects/${project.id}`} className="font-semibold text-slate-900 hover:text-teal-700">{project.name}</Link><p className="mt-1 text-xs text-slate-500">{[project.client, project.location].filter(Boolean).join(" | ") || `Project #${project.id}`}</p></td>
       <td className="px-5 py-4"><span className={`rounded-full px-2.5 py-1 text-xs font-semibold ${statusStyles[project.status]}`}>{project.status}</span></td>
       <td className="px-5 py-4"><div className="flex items-center gap-3"><div className="h-1.5 w-24 rounded-full bg-slate-100"><div className="h-1.5 rounded-full bg-teal-700" style={{ width: `${project.progress}%` }} /></div><span className="text-xs font-medium text-slate-600">{project.progress}%</span></div></td>
-      <td className="px-5 py-4 text-sm font-medium text-slate-700">{project.budget}</td>
-      <td className="px-5 py-4 text-sm text-slate-600">{project.dueDate}</td>
+      <td className="px-5 py-4 text-sm font-medium text-slate-700">{project.budget === null ? "—" : new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 0 }).format(Number(project.budget))}</td>
+      <td className="px-5 py-4 text-sm text-slate-600">{project.dueDate ? formatDueDate(project.dueDate) : "—"}</td>
     </tr>
   );
+}
+
+function SortableHeader({ field, label, sortBy, direction, onSort }: { field: ProjectSortField; label: string; sortBy: ProjectSortField; direction: SortDirection; onSort: (field: ProjectSortField) => void }) {
+  const isActive = sortBy === field;
+  return <th aria-sort={isActive ? direction === "asc" ? "ascending" : "descending" : "none"} className="px-5 py-3"><button type="button" onClick={() => onSort(field)} className="inline-flex items-center gap-1.5 text-left hover:text-teal-700">{label}<span aria-hidden="true" className="text-teal-700">{isActive ? direction === "asc" ? "↑" : "↓" : "↕"}</span></button></th>;
 }
 
 type ProjectFormProps = {
@@ -139,9 +165,11 @@ type ProjectFormProps = {
   register: ReturnType<typeof useForm<ProjectFormValues>>["register"];
   errors: ReturnType<typeof useForm<ProjectFormValues>>["formState"]["errors"];
   onSubmit: FormEventHandler<HTMLFormElement>;
+  isSaving: boolean;
+  submitError?: string;
 };
 
-function ProjectForm({ onClose, register, errors, onSubmit }: ProjectFormProps) {
+function ProjectForm({ onClose, register, errors, onSubmit, isSaving, submitError }: ProjectFormProps) {
   return (
     <div className="fixed inset-0 z-20 flex items-center justify-center bg-slate-950/30 p-4" role="dialog" aria-modal="true" aria-labelledby="new-project-title">
       <form onSubmit={onSubmit} className="w-full max-w-lg rounded-xl bg-white p-6 shadow-xl">
@@ -153,7 +181,8 @@ function ProjectForm({ onClose, register, errors, onSubmit }: ProjectFormProps) 
           <FormField label="Budget ($)" error={errors.budget?.message}><input {...register("budget")} type="number" min="0" className="w-full rounded-lg border border-slate-200 px-3 py-2.5 text-sm text-slate-900 outline-none transition placeholder:text-slate-400 focus:border-teal-600 focus:ring-2 focus:ring-teal-100" placeholder="250000" /></FormField>
           <FormField label="Due date" error={errors.dueDate?.message}><input {...register("dueDate")} type="date" className="w-full rounded-lg border border-slate-200 px-3 py-2.5 text-sm text-slate-900 outline-none transition placeholder:text-slate-400 focus:border-teal-600 focus:ring-2 focus:ring-teal-100" /></FormField>
         </div>
-        <div className="mt-6 flex justify-end gap-3"><button type="button" onClick={onClose} className="rounded-lg px-4 py-2 text-sm font-semibold text-slate-600 hover:bg-slate-100">Cancel</button><button type="submit" className="rounded-lg bg-slate-900 px-4 py-2 text-sm font-semibold text-white hover:bg-teal-800">Create project</button></div>
+        {submitError && <p className="mt-4 text-sm text-red-600" role="alert">{submitError}</p>}
+        <div className="mt-6 flex justify-end gap-3"><button type="button" onClick={onClose} disabled={isSaving} className="rounded-lg px-4 py-2 text-sm font-semibold text-slate-600 hover:bg-slate-100 disabled:opacity-50">Cancel</button><button type="submit" disabled={isSaving} className="rounded-lg bg-slate-900 px-4 py-2 text-sm font-semibold text-white hover:bg-teal-800 disabled:cursor-wait disabled:opacity-60">{isSaving ? "Saving..." : "Create project"}</button></div>
       </form>
     </div>
   );
@@ -161,6 +190,11 @@ function ProjectForm({ onClose, register, errors, onSubmit }: ProjectFormProps) 
 
 function FormField({ label, error, className = "", children }: { label: string; error?: string; className?: string; children: ReactNode }) {
   return <label className={`block ${className}`}><span className="mb-1.5 block text-sm font-medium text-slate-700">{label}</span>{children}{error && <span className="mt-1 block text-xs text-red-600">{error}</span>}</label>;
+}
+
+function formatDueDate(value: string) {
+  const [year, month, day] = value.slice(0, 10).split("-").map(Number);
+  return new Date(year, month - 1, day).toLocaleDateString();
 }
 
 export default Projects;
